@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from agent import CalculationAgent, get_default_llm
+from calculator_tool import calculate
 
 # Configure structured logging to both app.log and stdout
 logging.basicConfig(
@@ -62,6 +63,62 @@ def health_check():
 
 class EvaluateRequest(BaseModel):
     expression: str = Field(..., description="Math expression to evaluate")
+
+
+class ThinkRequest(BaseModel):
+    message: str = Field(..., description="User query to classify and extract expression from")
+    history: Optional[List[ChatMessage]] = Field(default=None)
+
+
+class ThinkResponse(BaseModel):
+    is_math: bool
+    expression: Optional[str] = None
+    refusal: Optional[str] = None
+
+
+@app.post("/api/think", response_model=ThinkResponse)
+def think_endpoint(request: ThinkRequest):
+    """LLM decides if query is math and extracts the expression.
+    Does NOT execute the tool — the browser invokes it via WebMCP so
+    Chrome DevTools Tool Activity captures the call.
+    """
+    from agent import has_calculation_intent, REFUSAL_MESSAGE
+
+    msg = request.message.strip()
+
+    # Fast guardrail before hitting the LLM
+    if not has_calculation_intent(msg):
+        logger.info(f"[think] Non-math query refused: '{msg}'")
+        return ThinkResponse(is_math=False, refusal=REFUSAL_MESSAGE)
+
+    # Ask LLM to extract the raw math expression only
+    from langchain_core.messages import SystemMessage, HumanMessage
+    extract_prompt = (
+        "You are a math expression extractor. "
+        "Given the user query, output ONLY the raw mathematical expression "
+        "suitable to pass to a calculator (e.g. '(5+3)*2', 'sqrt(144)', 'sin(pi/2)'). "
+        "Do NOT include any explanation, words, or formatting — just the expression. "
+        "If the query is not a math calculation, respond with exactly: NOT_MATH"
+    )
+
+    history_msgs = []
+    if request.history:
+        for h in request.history:
+            if h.role in ("human", "user"):
+                history_msgs.append(HumanMessage(content=h.content))
+
+    raw_llm = agent.raw_llm
+    extraction = raw_llm.invoke(
+        [SystemMessage(content=extract_prompt)] + history_msgs + [HumanMessage(content=msg)]
+    )
+    expr = extraction.content.strip()
+
+    if not expr or "NOT_MATH" in expr.upper():
+        logger.info(f"[think] LLM says not math for: '{msg}'")
+        return ThinkResponse(is_math=False, refusal=REFUSAL_MESSAGE)
+
+    logger.info(f"[think] Extracted expression='{expr}' from query='{msg}'")
+    return ThinkResponse(is_math=True, expression=expr)
 
 
 @app.post("/api/evaluate")

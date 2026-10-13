@@ -152,56 +152,78 @@ async function handleSubmit(query) {
   userInput.value = '';
   userInput.focus();
 
-  // 1. Get current conversation history from localStorage
+  // 1. Store and render human message
   const history = getStoredHistory();
-
-  // 2. Add current human message to history and render
   const humanMsg = { role: 'human', content: text };
   history.push(humanMsg);
   saveStoredHistory(history);
   renderMessage(humanMsg);
 
-  // 3. Prepare formatted payload for the agent (differentiating human vs AI)
-  // Only pass previous turns as context to keep history lean
-  const formattedHistory = history.slice(0, -1).map(item => ({
-    role: item.role,
-    content: item.content
-  }));
+  // Formatted history for backend (exclude current message)
+  const formattedHistory = history.slice(0, -1).map(({ role, content }) => ({ role, content }));
 
-  // Disable send button and show typing indicator
   sendBtn.disabled = true;
   renderTypingIndicator();
 
   try {
-    const response = await fetch('/api/chat', {
+    // 2. Ask LLM to classify and extract the math expression (no tool call yet)
+    const thinkResp = await fetch('/api/think', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: text,
-        history: formattedHistory
-      })
+      body: JSON.stringify({ message: text, history: formattedHistory })
     });
 
-    if (!response.ok) {
-      throw new Error(`Server returned status ${response.status}`);
+    if (!thinkResp.ok) throw new Error(`Server error ${thinkResp.status}`);
+    const think = await thinkResp.json();
+
+    // 3a. Non-math query — show refusal, no tool call
+    if (!think.is_math) {
+      const refusalMsg = {
+        role: 'ai',
+        content: think.refusal || 'I can only assist with mathematical calculations.',
+        tool_called: false
+      };
+      history.push(refusalMsg);
+      saveStoredHistory(history);
+      removeTypingIndicator();
+      renderMessage(refusalMsg);
+      return;
     }
 
-    const data = await response.json();
+    // 3b. Math query — invoke the tool via WebMCP so Tool Activity captures it
+    const expression = think.expression;
+    let toolResult;
 
-    // 4. Record and render AI response
+    const modelContext = window.document?.modelContext || window.navigator?.modelContext;
+    if (modelContext && typeof modelContext.invokeTool === 'function') {
+      // ✅ WebMCP path: Chrome DevTools Tool Activity will show this call
+      const wcResult = await modelContext.invokeTool('calculate', { expression });
+      // result.content is [{type:'text', text:'...'}]
+      toolResult = wcResult?.content?.[0]?.text ?? String(wcResult);
+    } else {
+      // Fallback: call /api/evaluate directly (Tool Activity won't show, but still works)
+      const evalResp = await fetch('/api/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expression })
+      });
+      const evalData = await evalResp.json();
+      toolResult = String(evalData.result);
+    }
+
+    // 4. Compose and render AI response
     const aiMsg = {
       role: 'ai',
-      content: data.response,
-      tool_called: data.tool_called,
-      expression: data.expression,
-      tool_result: data.tool_result
+      content: `The result of ${expression} is **${toolResult}**.`,
+      tool_called: true,
+      expression,
+      tool_result: toolResult
     };
-
     history.push(aiMsg);
     saveStoredHistory(history);
-
     removeTypingIndicator();
     renderMessage(aiMsg);
+
   } catch (error) {
     removeTypingIndicator();
     const errorMsg = {
