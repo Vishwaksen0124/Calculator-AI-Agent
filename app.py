@@ -1,9 +1,4 @@
-"""app.py
-
-FastAPI backend server for the Strict Calculation Agent.
-Serves static frontend and API endpoints for chat with local storage history support.
-"""
-
+import logging
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +7,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from agent import CalculationAgent, get_default_llm
+
+# Configure structured logging to both app.log and stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("app.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger("CalculationAgent")
 
 app = FastAPI(title="Calculation AI Agent API", version="1.0.0")
 
@@ -65,9 +71,18 @@ def chat_endpoint(request: ChatRequest):
                 for msg in request.history
             ]
 
+        logger.info(f"Incoming Request: '{request.message}'")
         result = agent.run(query=request.message, history=formatted_history)
+        if result.get("tool_called"):
+            logger.info(
+                f"Tool Executed: calculate(expression='{result['expression']}') -> Result: '{result['tool_result']}'"
+            )
+        else:
+            logger.info("No tool called (Guardrail Refusal / Non-calculation Query)")
+        logger.info(f"Response: '{result['response']}'")
         return ChatResponse(**result)
     except Exception as exc:
+        logger.error(f"Error processing request: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
