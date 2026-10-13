@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Strict Calculation AI Agent</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-icon">🧮</div>
+        <div>
+          <h1>Calculation Agent</h1>
+          <p class="subtitle">Strict Tool-Verified Math • Anti-Hallucination Guardrails</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <span class="status-badge"><span class="status-dot"></span> Ready (Local AI)</span>
+        <button id="clearBtn" class="secondary-btn" title="Clear Local History">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Clear History
+        </button>
+      </div>
+    </header>
+
+    <!-- Chat Messages Window -->
+    <main class="chat-main" id="chatContainer">
+      <div class="welcome-card" id="welcomeCard">
+        <h3>Welcome to the Calculation AI Agent</h3>
+        <p>This agent is strictly bounded to mathematical calculations. It never guesses calculations mentally; it strictly calls a symbolic tool.</p>
+        <div class="quick-chips">
+          <span class="chip-label">Try a prompt:</span>
+          <button class="chip" data-query="Calculate (50 * 20) + (144 / 12)">(50 * 20) + (144 / 12)</button>
+          <button class="chip" data-query="Calculate sqrt(256) + 2^4">sqrt(256) + 2^4</button>
+          <button class="chip" data-query="Calculate sin(pi / 3)">sin(pi / 3)</button>
+          <button class="chip" data-query="Solve for x: x**2 - 49 = 0">Solve x^2 - 49 = 0</button>
+          <button class="chip test-refusal" data-query="What is the capital of France?">Test Refusal (Non-Math)</button>
+        </div>
+      </div>
+      <div id="messagesList" class="messages-list"></div>
+    </main>
+
+    <!-- Footer Input Bar -->
+    <footer class="chat-footer">
+      <form id="chatForm" class="input-form">
+        <input 
+          type="text" 
+          id="userInput" 
+          placeholder="Enter a calculation (e.g. 25 * 48, sqrt(144), sin(pi/2))..." 
+          autocomplete="off" 
+          required
+        />
+        <button type="submit" id="sendBtn" class="send-btn">
+          <span>Calculate</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </form>
+      <div class="footer-note">
+        History persisted in browser localStorage • Differentiated Human vs AI roles • Zero mental hallucination
+      </div>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

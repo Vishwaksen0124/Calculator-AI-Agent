@@ -1,0 +1,251 @@
+/**
+ * app.js
+ * Frontend application logic for Strict Calculation Agent.
+ * Manages localStorage conversation history, differentiates AI vs Human messages,
+ * and formats history to pass to the agent backend.
+ */
+
+const STORAGE_KEY = 'calc_agent_conversation_history';
+
+const chatContainer = document.getElementById('chatContainer');
+const messagesList = document.getElementById('messagesList');
+const chatForm = document.getElementById('chatForm');
+const userInput = document.getElementById('userInput');
+const sendBtn = document.getElementById('sendBtn');
+const clearBtn = document.getElementById('clearBtn');
+const welcomeCard = document.getElementById('welcomeCard');
+
+// -------------------------------------------------------------
+// Local Storage History Management
+// -------------------------------------------------------------
+
+function getStoredHistory() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.error('Error loading history from localStorage:', e);
+    return [];
+  }
+}
+
+function saveStoredHistory(history) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+  } catch (e) {
+    console.error('Error saving history to localStorage:', e);
+  }
+}
+
+function clearStoredHistory() {
+  localStorage.removeItem(STORAGE_KEY);
+  messagesList.innerHTML = '';
+  if (welcomeCard) {
+    welcomeCard.style.display = 'block';
+  }
+}
+
+// -------------------------------------------------------------
+// UI Rendering
+// -------------------------------------------------------------
+
+function renderMessage(msg) {
+  if (welcomeCard) {
+    welcomeCard.style.display = 'none';
+  }
+
+  const isHuman = msg.role === 'human';
+  const wrapper = document.createElement('div');
+  wrapper.className = `message-wrapper ${isHuman ? 'role-human' : 'role-ai'}`;
+
+  // Header with role badge
+  const header = document.createElement('div');
+  header.className = 'message-header';
+  const badge = document.createElement('span');
+  badge.className = isHuman ? 'role-badge-human' : 'role-badge-ai';
+  badge.textContent = isHuman ? '👤 You' : '🤖 Calculation Agent';
+  header.appendChild(badge);
+  wrapper.appendChild(header);
+
+  // Content Bubble
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = msg.content;
+
+  // If AI invoked the calculation tool, render tool execution card
+  if (!isHuman && msg.tool_called) {
+    const toolCard = document.createElement('div');
+    toolCard.className = 'tool-card';
+    
+    const cardTitle = document.createElement('div');
+    cardTitle.className = 'tool-card-title';
+    cardTitle.innerHTML = '⚡ <span>Tool Executed: calculate</span>';
+    toolCard.appendChild(cardTitle);
+
+    if (msg.expression) {
+      const expRow = document.createElement('div');
+      expRow.className = 'tool-detail';
+      expRow.innerHTML = `<span class="tool-key">Expression:</span> <span class="tool-val">${escapeHtml(msg.expression)}</span>`;
+      toolCard.appendChild(expRow);
+    }
+
+    if (msg.tool_result) {
+      const resRow = document.createElement('div');
+      resRow.className = 'tool-detail';
+      resRow.innerHTML = `<span class="tool-key">Tool Output:</span> <span class="tool-val">${escapeHtml(msg.tool_result)}</span>`;
+      toolCard.appendChild(resRow);
+    }
+
+    bubble.appendChild(toolCard);
+  }
+
+  wrapper.appendChild(bubble);
+  messagesList.appendChild(wrapper);
+  scrollToBottom();
+}
+
+function renderTypingIndicator() {
+  const wrapper = document.createElement('div');
+  wrapper.id = 'typingIndicator';
+  wrapper.className = 'message-wrapper role-ai';
+  wrapper.innerHTML = `
+    <div class="message-header">
+      <span class="role-badge-ai">🤖 Calculation Agent</span>
+    </div>
+    <div class="bubble">
+      <div class="typing-indicator">
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+      </div>
+    </div>
+  `;
+  messagesList.appendChild(wrapper);
+  scrollToBottom();
+}
+
+function removeTypingIndicator() {
+  const indicator = document.getElementById('typingIndicator');
+  if (indicator) {
+    indicator.remove();
+  }
+}
+
+function scrollToBottom() {
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+function escapeHtml(str) {
+  return str.replace(/[&<>'"]/g, 
+    tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+  );
+}
+
+// -------------------------------------------------------------
+// Form Submit & API Communication
+// -------------------------------------------------------------
+
+async function handleSubmit(query) {
+  const text = (query || userInput.value).trim();
+  if (!text) return;
+
+  userInput.value = '';
+  userInput.focus();
+
+  // 1. Get current conversation history from localStorage
+  const history = getStoredHistory();
+
+  // 2. Add current human message to history and render
+  const humanMsg = { role: 'human', content: text };
+  history.push(humanMsg);
+  saveStoredHistory(history);
+  renderMessage(humanMsg);
+
+  // 3. Prepare formatted payload for the agent (differentiating human vs AI)
+  // Only pass previous turns as context to keep history lean
+  const formattedHistory = history.slice(0, -1).map(item => ({
+    role: item.role,
+    content: item.content
+  }));
+
+  // Disable send button and show typing indicator
+  sendBtn.disabled = true;
+  renderTypingIndicator();
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: text,
+        history: formattedHistory
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server returned status ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // 4. Record and render AI response
+    const aiMsg = {
+      role: 'ai',
+      content: data.response,
+      tool_called: data.tool_called,
+      expression: data.expression,
+      tool_result: data.tool_result
+    };
+
+    history.push(aiMsg);
+    saveStoredHistory(history);
+
+    removeTypingIndicator();
+    renderMessage(aiMsg);
+  } catch (error) {
+    removeTypingIndicator();
+    const errorMsg = {
+      role: 'ai',
+      content: `Error: Unable to connect to calculation agent (${error.message}). Please ensure backend is running.`,
+      tool_called: false
+    };
+    renderMessage(errorMsg);
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+// -------------------------------------------------------------
+// Initialization & Event Listeners
+// -------------------------------------------------------------
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Load messages from localStorage
+  const saved = getStoredHistory();
+  if (saved.length > 0) {
+    saved.forEach(renderMessage);
+  }
+
+  // Form submit
+  chatForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    handleSubmit();
+  });
+
+  // Clear history button
+  clearBtn.addEventListener('click', () => {
+    if (confirm('Clear conversation history stored in localStorage?')) {
+      clearStoredHistory();
+    }
+  });
+
+  // Quick chip buttons
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const query = chip.getAttribute('data-query');
+      if (query) {
+        handleSubmit(query);
+      }
+    });
+  });
+});
