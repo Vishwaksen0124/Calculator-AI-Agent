@@ -216,10 +216,55 @@ async function handleSubmit(query) {
 }
 
 // -------------------------------------------------------------
+// WebMCP Integration (Chrome DevTools Application > WebMCP)
+// -------------------------------------------------------------
+
+async function registerWebMCP() {
+  const modelContext = window.document?.modelContext || window.navigator?.modelContext;
+  if (!modelContext || typeof modelContext.registerTool !== 'function') {
+    return;
+  }
+
+  try {
+    await modelContext.registerTool({
+      name: 'calculate',
+      description: 'Evaluates any mathematical expression accurately (arithmetic, algebra, trigonometry, powers, roots, calculus).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          expression: {
+            type: 'string',
+            description: 'The raw mathematical expression string to evaluate (e.g. 25 * 48, sqrt(144), sin(pi/2))'
+          }
+        },
+        required: ['expression']
+      },
+      async execute({ expression }) {
+        const resp = await fetch('/api/evaluate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expression })
+        });
+        const data = await resp.json();
+        return {
+          content: [{ type: 'text', text: String(data.result) }]
+        };
+      }
+    });
+    console.log('✓ WebMCP calculate tool registered. Inspect in DevTools -> Application -> WebMCP');
+  } catch (err) {
+    console.warn('WebMCP registration note:', err);
+  }
+}
+
+// -------------------------------------------------------------
 // Initialization & Event Listeners
 // -------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Register WebMCP tool for Chrome DevTools Application > WebMCP panel
+  registerWebMCP();
+
   // Load messages from localStorage
   const saved = getStoredHistory();
   if (saved.length > 0) {

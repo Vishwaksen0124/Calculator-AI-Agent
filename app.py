@@ -60,6 +60,23 @@ def health_check():
     return {"status": "ok", "service": "Calculation AI Agent"}
 
 
+class EvaluateRequest(BaseModel):
+    expression: str = Field(..., description="Math expression to evaluate")
+
+
+@app.post("/api/evaluate")
+def evaluate_endpoint(request: EvaluateRequest):
+    """Direct execution endpoint for WebMCP client tools."""
+    try:
+        logger.info(f"WebMCP Tool Evaluation: expression='{request.expression}'")
+        res = calculate.invoke({"expression": request.expression})
+        logger.info(f"WebMCP Tool Output: '{res}'")
+        return {"result": str(res), "expression": request.expression}
+    except Exception as exc:
+        logger.error(f"WebMCP Evaluation Error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest):
     try:
